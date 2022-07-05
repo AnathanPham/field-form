@@ -1,7 +1,7 @@
 import toChildrenArray from 'rc-util/lib/Children/toArray';
 import warning from 'rc-util/lib/warning';
 import * as React from 'react';
-import {
+import type {
   FieldEntity,
   FormInstance,
   InternalNamePath,
@@ -15,6 +15,7 @@ import {
   RuleObject,
   StoreValue,
   EventArgs,
+  RuleError,
 } from './interface';
 import FieldContext, { HOOK_MARK } from './FieldContext';
 import { toArray } from './utils/typeUtil';
@@ -25,6 +26,8 @@ import {
   getNamePath,
   getValue,
 } from './utils/valueUtil';
+
+const EMPTY_ERRORS: any[] = [];
 
 export type ShouldUpdate<Values = any> =
   | boolean
@@ -44,6 +47,7 @@ function requireUpdate(
   return prevValue !== nextValue;
 }
 
+// eslint-disable-next-line @typescript-eslint/consistent-indexed-object-style
 interface ChildProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [name: string]: any;
@@ -68,10 +72,11 @@ export interface InternalFieldProps<Values = any> {
   validateTrigger?: string | string[] | false;
   validateFirst?: boolean | 'parallel';
   valuePropName?: string;
-  getValueProps?: (value: StoreValue) => object;
+  getValueProps?: (value: StoreValue) => Record<string, unknown>;
   messageVariables?: Record<string, string>;
   initialValue?: any;
   onReset?: () => void;
+  onMetaChange?: (meta: Meta & { destroy?: boolean }) => void;
   preserve?: boolean;
 
   /** @private Passed by Form.List props. Do not use since it will break by path check. */
@@ -107,7 +112,11 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
     resetCount: 0,
   };
 
-  private cancelRegisterFunc: (isListField?: boolean, preserve?: boolean) => void | null = null;
+  private cancelRegisterFunc: (
+    isListField?: boolean,
+    preserve?: boolean,
+    namePath?: InternalNamePath,
+  ) => void | null = null;
 
   private mounted = false;
 
@@ -117,14 +126,19 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
    */
   private touched: boolean = false;
 
-  /** Mark when touched & validated. Currently only used for `dependencies` */
+  /**
+   * Mark when touched & validated. Currently only used for `dependencies`.
+   * Note that we do not think field with `initialValue` is dirty
+   * but this will be by `isFieldDirty` func.
+   */
   private dirty: boolean = false;
 
   private validatePromise: Promise<string[]> | null = null;
 
   private prevValidating: boolean;
 
-  private errors: string[] = [];
+  private errors: string[] = EMPTY_ERRORS;
+  private warnings: string[] = EMPTY_ERRORS;
 
   // ============================== Subscriptions ==============================
   constructor(props: InternalFieldProps) {
@@ -158,14 +172,15 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
 
   public componentWillUnmount() {
     this.cancelRegister();
+    this.triggerMetaEvent(true);
     this.mounted = false;
   }
 
   public cancelRegister = () => {
-    const { preserve, isListField } = this.props;
+    const { preserve, isListField, name } = this.props;
 
     if (this.cancelRegisterFunc) {
-      this.cancelRegisterFunc(isListField, preserve);
+      this.cancelRegisterFunc(isListField, preserve, getNamePath(name));
     }
     this.cancelRegisterFunc = null;
   };
@@ -181,14 +196,12 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
   public getRules = (): RuleObject[] => {
     const { rules = [], fieldContext } = this.props;
 
-    return rules.map(
-      (rule: Rule): RuleObject => {
-        if (typeof rule === 'function') {
-          return rule(fieldContext);
-        }
-        return rule;
-      },
-    );
+    return rules.map((rule: Rule): RuleObject => {
+      if (typeof rule === 'function') {
+        return rule(fieldContext);
+      }
+      return rule;
+    });
   };
 
   public reRender() {
@@ -207,6 +220,12 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
     }));
   };
 
+  public triggerMetaEvent = (destroy?: boolean) => {
+    const { onMetaChange } = this.props;
+
+    onMetaChange?.({ ...this.getMeta(), destroy });
+  };
+
   // ========================= Field Entity Interfaces =========================
   // Trigger by store update. Check if need update the component
   public onStoreChange: FieldEntity['onStoreChange'] = (prevStore, namePathList, info) => {
@@ -223,7 +242,9 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
       this.touched = true;
       this.dirty = true;
       this.validatePromise = null;
-      this.errors = [];
+      this.errors = EMPTY_ERRORS;
+      this.warnings = EMPTY_ERRORS;
+      this.triggerMetaEvent();
     }
 
     switch (info.type) {
@@ -233,20 +254,35 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
           this.touched = false;
           this.dirty = false;
           this.validatePromise = null;
-          this.errors = [];
+          this.errors = EMPTY_ERRORS;
+          this.warnings = EMPTY_ERRORS;
+          this.triggerMetaEvent();
 
-          if (onReset) {
-            onReset();
-          }
+          onReset?.();
 
           this.refresh();
           return;
         }
         break;
 
+      /**
+       * In case field with `preserve = false` nest deps like:
+       * - A = 1 => show B
+       * - B = 1 => show C
+       * - Reset A, need clean B, C
+       */
+      case 'remove': {
+        if (shouldUpdate) {
+          this.reRender();
+          return;
+        }
+        break;
+      }
+
       case 'setField': {
         if (namePathMatch) {
           const { data } = info;
+
           if ('touched' in data) {
             this.touched = data.touched;
           }
@@ -254,9 +290,14 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
             this.validatePromise = data.validating ? Promise.resolve([]) : null;
           }
           if ('errors' in data) {
-            this.errors = data.errors || [];
+            this.errors = data.errors || EMPTY_ERRORS;
+          }
+          if ('warnings' in data) {
+            this.warnings = data.warnings || EMPTY_ERRORS;
           }
           this.dirty = true;
+
+          this.triggerMetaEvent();
 
           this.reRender();
           return;
@@ -316,7 +357,7 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
     }
   };
 
-  public validateRules = (options?: ValidateOptions): Promise<string[]> => {
+  public validateRules = (options?: ValidateOptions): Promise<RuleError[]> => {
     // We should fixed namePath & value to avoid developer change then by form function
     const namePath = this.getNamePath();
     const currentValue = this.getValue();
@@ -353,10 +394,25 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
 
       promise
         .catch(e => e)
-        .then((errors: string[] = []) => {
+        .then((ruleErrors: RuleError[] = EMPTY_ERRORS) => {
           if (this.validatePromise === rootPromise) {
             this.validatePromise = null;
-            this.errors = errors;
+
+            // Get errors & warnings
+            const nextErrors: string[] = [];
+            const nextWarnings: string[] = [];
+            ruleErrors.forEach(({ rule: { warningOnly }, errors = EMPTY_ERRORS }) => {
+              if (warningOnly) {
+                nextWarnings.push(...errors);
+              } else {
+                nextErrors.push(...errors);
+              }
+            });
+
+            this.errors = nextErrors;
+            this.warnings = nextWarnings;
+            this.triggerMetaEvent();
+
             this.reRender();
           }
         });
@@ -366,7 +422,9 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
 
     this.validatePromise = rootPromise;
     this.dirty = true;
-    this.errors = [];
+    this.errors = EMPTY_ERRORS;
+    this.warnings = EMPTY_ERRORS;
+    this.triggerMetaEvent();
 
     // Force trigger re-render since we need sync renderProps with new meta
     this.reRender();
@@ -378,13 +436,31 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
 
   public isFieldTouched = () => this.touched;
 
-  public isFieldDirty = () => this.dirty;
+  public isFieldDirty = () => {
+    // Touched or validate or has initialValue
+    if (this.dirty || this.props.initialValue !== undefined) {
+      return true;
+    }
+
+    // Form set initialValue
+    const { fieldContext } = this.props;
+    const { getInitialValue } = fieldContext.getInternalHooks(HOOK_MARK);
+    if (getInitialValue(this.getNamePath()) !== undefined) {
+      return true;
+    }
+
+    return false;
+  };
 
   public getErrors = () => this.errors;
+
+  public getWarnings = () => this.warnings;
 
   public isListField = () => this.props.isListField;
 
   public isList = () => this.props.isList;
+
+  public isPreserve = () => this.props.preserve;
 
   // ============================= Child Component =============================
   public getMeta = (): Meta => {
@@ -395,6 +471,7 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
       touched: this.isFieldTouched(),
       validating: this.prevValidating,
       errors: this.errors,
+      warnings: this.warnings,
       name: this.getNamePath(),
     };
 
@@ -466,6 +543,8 @@ class Field extends React.Component<InternalFieldProps, FieldState> implements F
       // Mark as touched
       this.touched = true;
       this.dirty = true;
+
+      this.triggerMetaEvent();
 
       let newValue: StoreValue;
       if (getValueFromEvent) {
@@ -551,11 +630,15 @@ function WrapperField<Values = any>({ name, ...restProps }: FieldProps<Values>) 
     key = `_${(namePath || []).join('_')}`;
   }
 
-  if (process.env.NODE_ENV !== 'production') {
-    warning(
-      restProps.preserve !== false || !restProps.isListField,
-      '`preserve` should not apply on Form.List fields.',
-    );
+  // Warning if it's a directly list field.
+  // We can still support multiple level field preserve.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    restProps.preserve === false &&
+    restProps.isListField &&
+    namePath.length <= 1
+  ) {
+    warning(false, '`preserve` should not apply on Form.List fields.');
   }
 
   return <Field key={key} name={namePath} {...restProps} fieldContext={fieldContext} />;

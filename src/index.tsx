@@ -5,26 +5,41 @@ import List from './List';
 import useForm from './useForm';
 import FieldForm, { FormProps } from './Form';
 import { FormProvider } from './FormContext';
+import FieldContext from './FieldContext';
+import ListContext from './ListContext';
+import useWatch from './useWatch';
 
 const InternalForm = React.forwardRef<FormInstance, FormProps>(FieldForm) as <Values = any>(
-  props: React.PropsWithChildren<FormProps<Values>> & { ref?: React.Ref<FormInstance<Values>> },
+  props: FormProps<Values> & { ref?: React.Ref<FormInstance<Values>> },
 ) => React.ReactElement;
 
-type InternalForm = typeof InternalForm;
-interface RefForm extends InternalForm {
+type InternalFormType = typeof InternalForm;
+interface RefFormType extends InternalFormType {
   FormProvider: typeof FormProvider;
   Field: typeof Field;
   List: typeof List;
   useForm: typeof useForm;
+  useWatch: typeof useWatch;
 }
 
-const RefForm: RefForm = InternalForm as RefForm;
+const RefForm: RefFormType = InternalForm as RefFormType;
 
 RefForm.FormProvider = FormProvider;
 RefForm.Field = Field;
 RefForm.List = List;
 RefForm.useForm = useForm;
+RefForm.useWatch = useWatch;
 
-export { FormInstance, Field, List, useForm, FormProvider, FormProps };
+export {
+  FormInstance,
+  Field,
+  List,
+  useForm,
+  FormProvider,
+  FormProps,
+  FieldContext,
+  ListContext,
+  useWatch,
+};
 
 export default RefForm;

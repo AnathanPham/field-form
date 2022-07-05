@@ -13,10 +13,12 @@
 /es
 /lib
 .doc
+/coverage
 
 # misc
 .DS_Store
 .vscode
+.idea
 
 # umi
 .umi

@@ -1,7 +1,8 @@
 import get from 'rc-util/lib/utils/get';
 import set from 'rc-util/lib/utils/set';
-import { InternalNamePath, NamePath, Store, StoreValue, EventArgs } from '../interface';
+import type { InternalNamePath, NamePath, Store, StoreValue, EventArgs } from '../interface';
 import { toArray } from './typeUtil';
+import cloneDeep from '../utils/cloneDeep';
 
 /**
  * Convert name to internal supported format.
@@ -19,8 +20,13 @@ export function getValue(store: Store, namePath: InternalNamePath) {
   return value;
 }
 
-export function setValue(store: Store, namePath: InternalNamePath, value: StoreValue): Store {
-  const newStore = set(store, namePath, value);
+export function setValue(
+  store: Store,
+  namePath: InternalNamePath,
+  value: StoreValue,
+  removeIfUndefined = false,
+): Store {
+  const newStore = set(store, namePath, value, removeIfUndefined);
   return newStore;
 }
 
@@ -59,7 +65,8 @@ function internalSetValues<T>(store: T, values: T): T {
 
     // If both are object (but target is not array), we use recursion to set deep value
     const recursive = isObject(prevValue) && isObject(value);
-    newStore[key] = recursive ? internalSetValues(prevValue, value || {}) : value;
+
+    newStore[key] = recursive ? internalSetValues(prevValue, value || {}) : cloneDeep(value); // Clone deep for arrays
   });
 
   return newStore;
@@ -114,7 +121,7 @@ export function isSimilar(source: SimilarObject, target: SimilarObject) {
 
 export function defaultGetValueFromEvent(valuePropName: string, ...args: EventArgs) {
   const event = args[0];
-  if (event && event.target && valuePropName in event.target) {
+  if (event && event.target && typeof event.target === 'object' && valuePropName in event.target) {
     return (event.target as HTMLInputElement)[valuePropName];
   }
 

@@ -1,6 +1,6 @@
-import * as React from 'react';
 import warning from 'rc-util/lib/warning';
-import { InternalFormInstance } from './interface';
+import * as React from 'react';
+import type { InternalFormInstance } from './interface';
 
 export const HOOK_MARK = 'RC_FORM_INTERNAL_HOOKS';
 
@@ -13,6 +13,7 @@ const Context = React.createContext<InternalFormInstance>({
   getFieldValue: warningFunc,
   getFieldsValue: warningFunc,
   getFieldError: warningFunc,
+  getFieldWarning: warningFunc,
   getFieldsError: warningFunc,
   isFieldsTouched: warningFunc,
   isFieldTouched: warningFunc,
@@ -20,6 +21,7 @@ const Context = React.createContext<InternalFormInstance>({
   isFieldsValidating: warningFunc,
   resetFields: warningFunc,
   setFields: warningFunc,
+  setFieldValue: warningFunc,
   setFieldsValue: warningFunc,
   validateFields: warningFunc,
   submit: warningFunc,
@@ -33,10 +35,13 @@ const Context = React.createContext<InternalFormInstance>({
       registerField: warningFunc,
       useSubscribe: warningFunc,
       setInitialValues: warningFunc,
+      destroyForm: warningFunc,
       setCallbacks: warningFunc,
+      registerWatch: warningFunc,
       getFields: warningFunc,
       setValidateMessages: warningFunc,
       setPreserve: warningFunc,
+      getInitialValue: warningFunc,
     };
   },
 });

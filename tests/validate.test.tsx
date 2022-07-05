@@ -29,6 +29,7 @@ describe('Form.Validate', () => {
       {
         name: ['username'],
         errors: ["'username' is required"],
+        warnings: [],
       },
     ]);
 
@@ -37,10 +38,12 @@ describe('Form.Validate', () => {
       {
         name: ['username'],
         errors: ["'username' is required"],
+        warnings: [],
       },
       {
         name: ['not-exist'],
         errors: [],
+        warnings: [],
       },
     ]);
   });
@@ -412,7 +415,7 @@ describe('Form.Validate', () => {
           })
           .then(() => {
             expect(failed).toBeTruthy();
-            resolve();
+            resolve('');
           });
       });
     });
@@ -465,7 +468,7 @@ describe('Form.Validate', () => {
                   validator: () =>
                     new Promise(resolve => {
                       if (canEnd) {
-                        resolve();
+                        resolve('');
                       }
                     }),
                 },
@@ -483,6 +486,7 @@ describe('Form.Validate', () => {
         {
           name: ['username'],
           errors: ["'username' is required"],
+          warnings: [],
         },
       ]);
       expect(onFinish).not.toHaveBeenCalled();
@@ -721,6 +725,18 @@ describe('Form.Validate', () => {
 
     const values = await form.validateFields(['username']);
     expect(values.username.do).toBe('');
+  });
+
+  it('not trigger validator', async () => {
+    const wrapper = mount(
+      <div>
+        <Form>
+          <InfoField name="user" rules={[{ required: true }]} />
+        </Form>
+      </div>,
+    );
+    await changeValue(getField(wrapper, 0), ['light']);
+    matchError(wrapper, false);
   });
 });
 /* eslint-enable no-template-curly-in-string */
